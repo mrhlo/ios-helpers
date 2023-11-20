@@ -1,1 +1,3 @@
-# ios-helpers
+# iOSHelpers
+
+A description of this package.
