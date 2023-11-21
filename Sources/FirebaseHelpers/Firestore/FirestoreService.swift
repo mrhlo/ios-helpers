@@ -2,6 +2,7 @@
 //  FirestoreService.swift
 //
 
+import Combine
 import Foundation
 import FirebaseFirestore
 
@@ -16,6 +17,8 @@ public protocol FirestoreServicing {
     func saveSingleObject<T: FirestoreModel>(_ object: T, secondaryID: String?, overrideExisting: Bool) async throws -> String
     func addObjects<T: FirestoreModel>(_ objects: [T], secondaryID: String?) async throws
     func deleteSingleObject<T: FirestoreModel>(_ object: T, id: String) async throws
+    
+    func listenToUpdates<T: FirestoreModel>(of model: T.Type) -> PassthroughSubject<[T], Error>
 }
 
 public func makeDefaultFirestoreService() -> FirestoreServicing {
@@ -24,6 +27,7 @@ public func makeDefaultFirestoreService() -> FirestoreServicing {
 
 class FirestoreService: FirestoreServicing {
     private let firestore: Firestore
+    
     private lazy var dateFormatter: DateFormatter = {
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
@@ -32,6 +36,9 @@ class FirestoreService: FirestoreServicing {
         
         return dateFormatter
     }()
+    
+    private var listeners: [ListenerRegistration] = []
+    private var publishers: [Any] = []
     
     init(firestore: Firestore = Firestore.firestore()) {
         self.firestore = firestore
@@ -64,6 +71,7 @@ class FirestoreService: FirestoreServicing {
     
     func fetchObjects<T>(of model: T.Type, filter: [String: Any]) async throws -> [T] where T : FirestoreModel {
         var collectionReference: Query = firestore.collection(T.collectionPath)
+        
         
         for (key, value) in filter {
             collectionReference = collectionReference.whereField(key, isEqualTo: value)
@@ -154,6 +162,28 @@ class FirestoreService: FirestoreServicing {
     func deleteSingleObject<T>(_ object: T, id: String) async throws where T : FirestoreModel, T: Encodable {
         let documentReference = firestore.collection(T.collectionPath).document(id)
         try await documentReference.delete()
+    }
+    
+    
+    func listenToUpdates<T>(of model: T.Type) -> PassthroughSubject<[T], Error> where T : FirestoreModel {
+        let collectionReference = firestore.collection(T.collectionPath)
+        let collectionPublisher = PassthroughSubject<[T], Error>()
+        
+        let listener = collectionReference.addSnapshotListener { (snapshot, error) in
+            if let error = error {
+                collectionPublisher.send(completion: .failure(error))
+            } else if let snapshot = snapshot {
+                let data = snapshot.documents.compactMap {
+                    return try? self.decode(T.self, from: $0)
+                }
+                collectionPublisher.send(data)
+            }
+        }
+        
+        listeners.append(listener)
+        publishers.append(collectionPublisher)
+        
+        return collectionPublisher
     }
     
     private func decode<T: Decodable>(_ type: T.Type, from document: DocumentSnapshot, using decoder: JSONDecoder = JSONDecoder()) throws -> T {
