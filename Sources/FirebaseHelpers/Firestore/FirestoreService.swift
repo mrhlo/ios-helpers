@@ -5,7 +5,7 @@
 import Foundation
 import FirebaseFirestore
 
-protocol FirestoreServicing {
+public protocol FirestoreServicing {
     func fetchSingleObject<T: FirestoreModel>(of model: T.Type, id: String) async throws -> T
     func fetchSingleObject<T>(of model: T.Type, secondaryID: String) async throws -> T where T : FirestoreModel
     func fetchObjects<T: FirestoreModel>(of model: T.Type, secondaryID: String?) async throws -> [T]
@@ -16,6 +16,10 @@ protocol FirestoreServicing {
     func saveSingleObject<T: FirestoreModel>(_ object: T, secondaryID: String?, overrideExisting: Bool) async throws -> String
     func addObjects<T: FirestoreModel>(_ objects: [T], secondaryID: String?) async throws
     func deleteSingleObject<T: FirestoreModel>(_ object: T, id: String) async throws
+}
+
+public func makeDefaultFirestoreService() -> FirestoreServicing {
+    FirestoreService()
 }
 
 class FirestoreService: FirestoreServicing {

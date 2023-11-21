@@ -7,7 +7,7 @@
 
 import Foundation
 
-protocol FirestoreModel: Codable {
-    static var collectionPath: String { get }
-    static var secondaryIDKey: String { get }
+public protocol FirestoreModel: Codable {
+    public static var collectionPath: String { get }
+    public static var secondaryIDKey: String { get }
 }

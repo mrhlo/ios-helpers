@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum FirestoreError: Error {
+public enum FirestoreError: Error {
     case objectNotFound
 }
 
