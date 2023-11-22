@@ -18,7 +18,7 @@ public protocol FirestoreServicing {
     func addObjects<T: FirestoreModel>(_ objects: [T], secondaryID: String?) async throws
     func deleteSingleObject<T: FirestoreModel>(_ object: T, id: String) async throws
     
-    func listenToUpdates<T: FirestoreModel>(of model: T.Type) -> PassthroughSubject<[T], Error>
+    func listenToUpdates<T: FirestoreModel>(of model: T.Type) -> PassthroughSubject<[T], Never>
 }
 
 public func makeDefaultFirestoreService() -> FirestoreServicing {
@@ -165,13 +165,13 @@ class FirestoreService: FirestoreServicing {
     }
     
     
-    func listenToUpdates<T>(of model: T.Type) -> PassthroughSubject<[T], Error> where T : FirestoreModel {
+    func listenToUpdates<T>(of model: T.Type) -> PassthroughSubject<[T], Never> where T : FirestoreModel {
         let collectionReference = firestore.collection(T.collectionPath)
-        let collectionPublisher = PassthroughSubject<[T], Error>()
+        let collectionPublisher = PassthroughSubject<[T], Never>()
         
         let listener = collectionReference.addSnapshotListener { (snapshot, error) in
-            if let error = error {
-                collectionPublisher.send(completion: .failure(error))
+            if let _ = error {
+                return
             } else if let snapshot = snapshot {
                 let data = snapshot.documents.compactMap {
                     return try? self.decode(T.self, from: $0)
