@@ -117,25 +117,30 @@ class FirestoreService: FirestoreServicing {
         guard let secondaryID = secondaryID else {
             throw EncodingError.invalidValue(object, EncodingError.Context(codingPath: [], debugDescription: "secondaryID is required."))
         }
-
+        
         // Encode the object to JSON
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .formatted(dateFormatter)
-
+        
         let jsonData = try encoder.encode(object)
         guard var jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: .allowFragments) as? [String: Any] else {
             throw EncodingError.invalidValue(object, EncodingError.Context(codingPath: [], debugDescription: "Unable to convert object to JSON."))
         }
-
+        
         // Add the secondaryID to the jsonObject
         jsonObject[T.secondaryIDKey] = secondaryID
+        
+        if let id = jsonObject["id"] as? String {
+            let documentReference = firestore.collection(T.collectionPath).document(id)
+            try await documentReference.setData(jsonObject, merge: true)
+            
+            return id
+        } else {
+            let collectionReference = firestore.collection(T.collectionPath)
 
-        let collectionReference = firestore.collection(T.collectionPath)
-
-        // Fetch document(s) with the secondaryID
-        do {
+            // Fetch document(s) with the secondaryID
             let querySnapshot = try await collectionReference.whereField(T.secondaryIDKey, isEqualTo: secondaryID).getDocuments()
-
+            
             // Check if a document exists that matches the secondaryID
             if let documentSnapshot = querySnapshot.documents.first,
                overrideExisting {
@@ -144,12 +149,9 @@ class FirestoreService: FirestoreServicing {
                 return documentSnapshot.documentID
             } else {
                 // If no document is found, add a new one
-                let documentReference = try await collectionReference.addDocument(data: jsonObject)
+                let documentReference = collectionReference.addDocument(data: jsonObject)
                 return documentReference.documentID
             }
-        } catch {
-            print("=== Firebase error: \(error)")
-            throw error
         }
     }
     
@@ -170,7 +172,7 @@ class FirestoreService: FirestoreServicing {
         let collectionPublisher = PassthroughSubject<[T], Never>()
         
         let listener = collectionReference.addSnapshotListener { (snapshot, error) in
-            if let _ = error {
+            if let error = error {
                 return
             } else if let snapshot = snapshot {
                 let data = snapshot.documents.compactMap {
