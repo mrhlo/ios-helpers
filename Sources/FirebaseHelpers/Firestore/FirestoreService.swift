@@ -11,6 +11,7 @@ public protocol FirestoreServicing {
     func fetchSingleObject<T>(of model: T.Type, secondaryID: String) async throws -> T where T : FirestoreModel
     func fetchObjects<T: FirestoreModel>(of model: T.Type, secondaryID: String?) async throws -> [T]
     func fetchObjects<T: FirestoreModel>(of model: T.Type, filter: [String: Any]) async throws -> [T]
+    func fetchObjects<T: FirestoreModel>(of model: T.Type, secondaryID: String?, filter: [String: Any]) async throws -> [T]
     func saveSingleObject<T: FirestoreModel>(_ object: T, id: String) async throws
     func saveSingleObject<T: FirestoreModel>(_ object: T, id: String, individualFields: [String]?) async throws
     func saveSingleObject<T: FirestoreModel>(_ object: T, secondaryID: String?) async throws -> String
@@ -59,14 +60,13 @@ class FirestoreService: FirestoreServicing {
     }
     
     func fetchObjects<T>(of model: T.Type, secondaryID: String?) async throws -> [T] where T : FirestoreModel {
-        var collectionReference: Query = firestore.collection(T.collectionPath)
-        if let secondaryID {
-            collectionReference = collectionReference.whereField(T.secondaryIDKey, isEqualTo: secondaryID)
-        }
-        
-        return try await collectionReference.getDocuments().documents.compactMap {
-            try? decode(T.self, from: $0)
-        }
+        try await fetchObjects(of: T.self, filter: [T.secondaryIDKey: secondaryID].compactMapValues { $0 })
+    }
+    
+    func fetchObjects<T>(of model: T.Type, secondaryID: String?, filter: [String : Any]) async throws -> [T] where T : FirestoreModel {
+        var filters = filter
+        filters += [T.secondaryIDKey: secondaryID].compactMapValues { $0 }
+        return try await fetchObjects(of: T.self, filter: filters)
     }
     
     func fetchObjects<T>(of model: T.Type, filter: [String: Any]) async throws -> [T] where T : FirestoreModel {
@@ -203,3 +203,8 @@ class FirestoreService: FirestoreServicing {
     }
 }
 
+extension Dictionary {
+    static func += (lhs: inout Dictionary, rhs: Dictionary) {
+        rhs.forEach { lhs[$0.key] = $0.value }
+    }
+}
