@@ -227,7 +227,9 @@ class FirestoreService: FirestoreServicing {
             throw DecodingError.valueNotFound(T.self, DecodingError.Context(codingPath: [], debugDescription: "Document has no data."))
         }
         
-        data["id"] = document.documentID
+        if data["id"] == nil {
+            data["id"] = document.documentID
+        }
         
         let jsonData = try JSONSerialization.data(withJSONObject: data, options: [])
         
