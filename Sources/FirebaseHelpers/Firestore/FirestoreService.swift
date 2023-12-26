@@ -127,7 +127,7 @@ class FirestoreService: FirestoreServicing {
                 try await documentSnapshot.reference.updateData(jsonObject)
                 return documentSnapshot.documentID
             } else {
-                let documentReference = collectionReference.addDocument(data: jsonObject)
+                let documentReference = try await collectionReference.addDocument(data: jsonObject)
                 return documentReference.documentID
             }
         }
