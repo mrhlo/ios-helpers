@@ -113,52 +113,62 @@ class FirestoreService: FirestoreServicing {
     }
     
     func saveSingleObject<T>(_ object: T, secondaryID: String?, overrideExisting: Bool) async throws -> String where T : FirestoreModel, T: Encodable {
-        // Check if secondaryID is provided
-        guard let secondaryID = secondaryID else {
-            throw EncodingError.invalidValue(object, EncodingError.Context(codingPath: [], debugDescription: "secondaryID is required."))
-        }
-        
-        // Encode the object to JSON
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .formatted(dateFormatter)
-        
-        let jsonData = try encoder.encode(object)
-        guard var jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: .allowFragments) as? [String: Any] else {
-            throw EncodingError.invalidValue(object, EncodingError.Context(codingPath: [], debugDescription: "Unable to convert object to JSON."))
-        }
-        
-        // Add the secondaryID to the jsonObject
-        jsonObject[T.secondaryIDKey] = secondaryID
-        
-        if let id = jsonObject["id"] as? String {
-            let documentReference = firestore.collection(T.collectionPath).document(id)
+        let (jsonObject, documentID) = try prepareObjectForFirestore(object, secondaryID: secondaryID)
+
+        let collectionReference = firestore.collection(T.collectionPath)
+
+        if let id = documentID {
+            let documentReference = collectionReference.document(id)
             try await documentReference.setData(jsonObject, merge: true)
-            
             return id
         } else {
-            let collectionReference = firestore.collection(T.collectionPath)
-
-            // Fetch document(s) with the secondaryID
             let querySnapshot = try await collectionReference.whereField(T.secondaryIDKey, isEqualTo: secondaryID).getDocuments()
-            
-            // Check if a document exists that matches the secondaryID
-            if let documentSnapshot = querySnapshot.documents.first,
-               overrideExisting {
-                // If a document is found, update it
+            if let documentSnapshot = querySnapshot.documents.first, overrideExisting {
                 try await documentSnapshot.reference.updateData(jsonObject)
                 return documentSnapshot.documentID
             } else {
-                // If no document is found, add a new one
                 let documentReference = collectionReference.addDocument(data: jsonObject)
                 return documentReference.documentID
             }
         }
     }
     
-    func addObjects<T>(_ objects: [T], secondaryID: String?) async throws where T : FirestoreModel {
+    func addObjects<T>(_ objects: [T], secondaryID: String?) async throws where T : FirestoreModel, T: Encodable {
+        var jsonObjects: [String: [String: Any]] = [:]
+        
         for object in objects {
-            try await saveSingleObject(object, secondaryID: secondaryID, overrideExisting: false)
+            let (jsonObject, documentID) = try prepareObjectForFirestore(object, secondaryID: secondaryID)
+            if let id = documentID {
+                jsonObjects[id] = jsonObject
+            }
         }
+        
+        // Batch write operations
+        let batch = firestore.batch()
+        
+        let collectionReference = firestore.collection(T.collectionPath)
+        
+        // Fetch existing documents with matching secondary IDs
+        let querySnapshot = try await collectionReference.whereField(T.secondaryIDKey, isEqualTo: secondaryID).getDocuments()
+        
+        for document in querySnapshot.documents {
+            let id = document.documentID
+            
+            if let jsonObject = jsonObjects[id] {
+                // Update existing document
+                batch.updateData(jsonObject, forDocument: document.reference)
+                jsonObjects.removeValue(forKey: id)
+            }
+        }
+        
+        // Add new documents for remaining objects
+        for (_, jsonObject) in jsonObjects {
+            let newDocument = collectionReference.document()
+            batch.setData(jsonObject, forDocument: newDocument)
+        }
+        
+        // Commit the batch
+        try await batch.commit()
     }
     
     func deleteSingleObject<T>(_ object: T, id: String) async throws where T : FirestoreModel, T: Encodable {
@@ -187,6 +197,30 @@ class FirestoreService: FirestoreServicing {
         
         return collectionPublisher
     }
+    
+    private func prepareObjectForFirestore<T>(_ object: T, secondaryID: String?) throws -> (jsonObject: [String: Any], documentID: String?) where T : FirestoreModel, T: Encodable {
+        // Check if secondaryID is provided
+        guard let secondaryID = secondaryID else {
+            throw EncodingError.invalidValue(object, EncodingError.Context(codingPath: [], debugDescription: "secondaryID is required."))
+        }
+
+        // Encode the object to JSON
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .formatted(dateFormatter)
+        let jsonData = try encoder.encode(object)
+        guard var jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: .allowFragments) as? [String: Any] else {
+            throw EncodingError.invalidValue(object, EncodingError.Context(codingPath: [], debugDescription: "Unable to convert object to JSON."))
+        }
+
+        // Add the secondaryID to the jsonObject
+        jsonObject[T.secondaryIDKey] = secondaryID
+
+        // Extract the document ID if present
+        let documentID = jsonObject["id"] as? String
+
+        return (jsonObject, documentID)
+    }
+
     
     private func decode<T: Decodable>(_ type: T.Type, from document: DocumentSnapshot, using decoder: JSONDecoder = JSONDecoder()) throws -> T {
         guard var data = document.data() else {
